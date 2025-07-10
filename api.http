@@ -10,4 +10,4 @@ Content-Type: application/json
 }
 
 ### Delete a todo (replace 1 with a valid ID)
-DELETE http://127.0.0.1:5000/api/todos/1
+DELETE http://127.0.0.1:5000/api/todos/2
