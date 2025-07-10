@@ -1,0 +1,2 @@
+#local virtual environment not needed for container
+venv/
