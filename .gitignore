@@ -4,3 +4,12 @@ venv/
 # Python cache files
 __pycache__/
 *.pyc
+
+# Ignore user-specific VS Code files and state
+.vscode/*
+
+# But DO commit project-specific settings
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json

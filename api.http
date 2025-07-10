@@ -1,0 +1,13 @@
+### Get all todos
+GET http://127.0.0.1:5000/api/todos
+
+### Create a new todo
+POST http://127.0.0.1:5000/api/todos
+Content-Type: application/json
+
+{
+    "task": "Learn REST Client"
+}
+
+### Delete a todo (replace 1 with a valid ID)
+DELETE http://127.0.0.1:5000/api/todos/1
