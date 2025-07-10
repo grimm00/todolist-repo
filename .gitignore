@@ -13,3 +13,6 @@ __pycache__/
 !.vscode/extensions.json
 !.vscode/launch.json
 !.vscode/tasks.json
+
+# Ignore the instance-specific database file
+instance/database.db
