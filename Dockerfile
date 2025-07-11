@@ -8,6 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install sqlite3
 RUN apt-get update && apt-get install -y sqlite3
 
+# Create the directory for the local database
+RUN mkdir -p /app/instance
+
 COPY . .
 
 EXPOSE 5000
@@ -16,5 +19,6 @@ EXPOSE 8080
 ENV FLASK_APP=app.py
 ENV FLASK_RUN_HOST=0.0.0.0
 
-CMD ["flask", "run", "--host=0.0.0.0", "--port=${PORT:-5000}"]
+CMD ["python", "app.py"]
+
 

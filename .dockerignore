@@ -1,2 +1,10 @@
 #local virtual environment not needed for container
 venv/
+__pycache__/
+*.pyc
+.git
+.vscode
+.devcontainer
+instance/
+scripts/
+app.http
