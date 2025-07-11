@@ -1,0 +1,100 @@
+# .github/workflows/main.yml
+
+# Name of the workflow, which will be displayed on the GitHub Actions tab.
+name: Build, Test, and Deploy to Cloud Run
+
+# This section defines the trigger for the workflow.
+# In this case, it runs on any 'push' event to the 'main' branch.
+on:
+  push:
+    branches:
+      - main
+
+# Environment variables available to all jobs and steps in the workflow.
+# These are taken from your 'build-deploy.sh' script.
+env:
+  PROJECT_ID: "todolist-465520"
+  SERVICE_NAME: "todo-flask-app"
+  REGION: "us-central1"
+
+jobs:
+  build-and-deploy:
+    name: Build, Test, and Deploy
+    # Use the latest Ubuntu runner provided by GitHub.
+    runs-on: ubuntu-latest
+
+    # These permissions are required for the GCP authentication action.
+    # It allows the workflow to get an OIDC token from GitHub.
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      # Step 1: Check out the repository's code so the workflow can access it.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Authenticate to Google Cloud.
+      # This uses Workload Identity Federation to securely log in without service account keys.
+      # It uses the secrets you created in your GitHub repository.
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+
+      # Step 3: Set up the gcloud CLI tool.
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      # Step 4: Configure Docker to authenticate with Google Container Registry (GCR).
+      # This allows the 'docker push' command to work.
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io
+
+      # Define the image tag using an environment variable for reusability.
+      - name: Define Image Tag
+        run: echo "IMAGE_TAG=gcr.io/${PROJECT_ID}/${SERVICE_NAME}" >> $GITHUB_ENV
+
+      # Step 5: Build the Docker image, tagging it for GCR.
+      # This is the equivalent of 'docker build' in your script.
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE_TAG }}:latest .
+
+      # Step 6: Test the container locally on the runner.
+      # This replicates the local test stage from your script to ensure the container runs
+      # and responds correctly before it gets deployed.
+      - name: Test Docker image
+        run: |
+          CONTAINER_ID=$(docker run -d -p 8080:8080 ${{ env.IMAGE_TAG }}:latest)
+          # 'trap' ensures the container is stopped and removed even if the test fails.
+          trap 'docker stop ${CONTAINER_ID} && docker rm ${CONTAINER_ID}' EXIT
+          echo "Waiting for application to start..."
+          # Increased sleep time and added retries to curl for more reliability in the CI environment.
+          sleep 10 
+          echo "Testing application health..."
+          curl --retry 5 --retry-delay 3 --retry-connrefused --fail http://localhost:8080/
+          echo "✅ Container test passed!"
+
+      # Step 7: Push the successfully tested Docker image to GCR.
+      - name: Push Docker image to GCR
+        run: docker push ${{ env.IMAGE_TAG }}:latest
+
+      # Step 8: Deploy the new image to Cloud Run.
+      # This uses an official Google action to handle the deployment.
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          region: ${{ env.REGION }}
+          # Point to the specific image that was just built and pushed.
+          image: ${{ env.IMAGE_TAG }}:latest
+          # Add any other flags needed for your deployment.
+          flags: '--allow-unauthenticated'
+
+      # Final step: Output the URL of the deployed service for easy access.
+      - name: Output Deployed URL
+        run: echo "✅ Successfully deployed to ${{ steps.deploy.outputs.url }}"
+
