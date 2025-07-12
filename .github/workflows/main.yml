@@ -18,8 +18,11 @@ env:
   REGION: "us-central1"
   INSTANCE_CONNECTION_NAME: "todolist-465520:us-central1:flask-todo-db"
 jobs:
-  build-and-deploy:
-    name: Build, Test, and Deploy
+  # ----------------------------------------
+  # Job 1: Build, Test, and Push the Image
+  # ----------------------------------------
+  build-and-test:
+    name: Build, Test, and Push
     # Use the latest Ubuntu runner provided by GitHub.
     runs-on: ubuntu-latest
 
@@ -81,7 +84,25 @@ jobs:
       - name: Push Docker image to GCR
         run: docker push ${{ env.IMAGE_TAG }}:latest
 
-      # Step 8: Deploy the new image to Cloud Run.
+  # ----------------------------------------------------
+  # Job 2: Deploy the new image to Cloud Run.
+  # ----------------------------------------------------
+  deploy:
+    name: Deploy to Cloud Run
+    # This job will only run if the 'build-and-test' job succeeds
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+          
       # This uses an official Google action to handle the deployment.
       - name: Deploy to Cloud Run
         id: deploy
