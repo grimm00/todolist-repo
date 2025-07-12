@@ -57,8 +57,9 @@ else:
     instance_path = os.path.join(basedir, 'instance')
     os.makedirs(instance_path, exist_ok=True)
     db_uri = f"sqlite:///{os.path.join(instance_path, 'database.db')}"
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
     
-app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
