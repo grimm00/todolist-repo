@@ -92,7 +92,15 @@ jobs:
           # Point to the specific image that was just built and pushed.
           image: ${{ env.IMAGE_TAG }}:latest
           # Add any other flags needed for your deployment.
-          flags: '--allow-unauthenticated'
+          # This section passes your database info to the app
+          env_vars: |
+            INSTANCE_CONNECTION_NAME=${{ env.INSTANCE_CONNECTION_NAME }}
+            DB_USER=projects/${{ env.PROJECT_ID }}/secrets/DB_USER/versions/latest
+            DB_PASS=projects/${{ env.PROJECT_ID }}/secrets/DB_PASS/versions/latest
+            DB_NAME=projects/${{ env.PROJECT_ID }}/secrets/DB_NAME/versions/latest
+          flags: >-
+             --allow-unauthenticated
+             --add-cloudsql-instances=${{ env.INSTANCE_CONNECTION_NAME }}
 
       # Final step: Output the URL of the deployed service for easy access.
       - name: Output Deployed URL
