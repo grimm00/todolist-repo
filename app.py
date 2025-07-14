@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
+from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 import os
 
 # --- Find the absolute path of the project directory ---
@@ -30,6 +30,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app) # Initialize BCrypt
 login_manager = LoginManager(app) # Initialize Flask-Login
+# If a user tries to access a @login_required route without being logged in,
+# Flask-Login will return a 401 Unauthorized error, which is perfect for an API.
+login_manager.login_view = ''
 
 # --- DATABASE MODEL DEFINITIONS ---
 
@@ -38,22 +41,24 @@ login_manager = LoginManager(app) # Initialize Flask-Login
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
-# The User model now inherits from UserMixin, which adds the required properties for Flask-Login to work.
+# The User model inherits from UserMixin, which adds the required properties for Flask-Login to work.
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), nullable=False, unique=True)
     password_hash = db.Column(db.String(150), nullable=False)
+    todos = db.relationship('Todo', backref='author', lazy=True)  # This relationship links a User to all of their Todo items.
 
     def set_password(self, password):
         self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
 
     def check_password(self, password):
-        # We will use this in the next step (login)
         return bcrypt.check_password_hash(self.password_hash, password)
+
 class Todo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     task = db.Column(db.String(200), nullable=False)
     completed = db.Column(db.Boolean, default=False, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False) # This foreign key column links each Todo to a User.
 
     def to_dict(self):
         return {
@@ -113,27 +118,31 @@ def logout():
     return jsonify({"success": "Logged out successfully."})
 # --- API ENDPOINTS ---
 
-# GET all to-do items
+# GET all to-do items for the logged-in user
 @app.route('/api/todos', methods=['GET'])
+@login_required # <-- This endpoint is now protected
 def get_todos():
-    todos = Todo.query.all()
+    todos = Todo.query.filter_by(author=current_user).all() # NEW: Filter todos to only get ones authored by the current_user
     return jsonify([todo.to_dict() for todo in todos])
 
-# POST a new to-do item
+# POST a new to-do item for the logged-in user
 @app.route('/api/todos', methods=['POST'])
+@login_required # <-- This endpoint is now protected
 def create_todo():
     data = request.get_json()
-    new_todo = Todo(task=data['task'])
+    new_todo = Todo(task=data['task'], author=current_user) # NEW: Assign the current_user as the author of the new todo
     db.session.add(new_todo)
     db.session.commit()
     return jsonify(new_todo.to_dict()), 201
 
 # DELETE a to-do item
 @app.route('/api/todos/<int:id>', methods=['DELETE'])
+@login_required # <-- This endpoint is now protected
 def delete_todo(id):
-    todo = Todo.query.get(id)
+    # NEW: Query for the todo, ensuring it belongs to the current_user
+    todo = Todo.query.filter_by(id=id, user_id=current_user.id).first()
     if todo is None:
-        return jsonify({"error": "Todo not found"}), 404
+        return jsonify({"error": "Todo not found or you do not own this todo"}), 404
     
     db.session.delete(todo)
     db.session.commit()
