@@ -5,7 +5,7 @@
 # tests the protected to-do list endpoints.
 
 # --- Configuration ---
-BASE_URL="http://127.0.0.1:8080"
+BASE_URL="http://127.0.0.1:5000"
 # Define a test user. Use a random number to ensure the user is unique on each run.
 RANDOM_NUM=$RANDOM
 TEST_USER="testuser$RANDOM_NUM"
