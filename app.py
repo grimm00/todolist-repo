@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, render_template
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
+from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user
 import os
 
 # --- Find the absolute path of the project directory ---
@@ -9,7 +10,11 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 # Create a Flask application instance
 app = Flask(__name__)
 
+# Add a secret key, which is required by Flask-Login to securely sign the session cookie.
+app.config['SECRET_KEY'] = os.urandom(24)
+
 # --- DATABASE CONFIGURATION ---
+
 # Check if running in Cloud Run, otherwise use the local instance folder
 if os.environ.get("K_SERVICE"):
     # For Cloud Run, use the temporary directory
@@ -24,10 +29,17 @@ app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app) # Initialize BCrypt
+login_manager = LoginManager(app) # Initialize Flask-Login
 
 # --- DATABASE MODEL DEFINITIONS ---
 
-class User(db.Model):
+# The user_loader is a function that Flask-Login uses to reload a user object from the user ID stored in the session.
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
+
+# The User model now inherits from UserMixin, which adds the required properties for Flask-Login to work.
+class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), nullable=False, unique=True)
     password_hash = db.Column(db.String(150), nullable=False)
@@ -79,6 +91,26 @@ def register():
     
     return jsonify({"success": f"User '{new_user.username}' created."}), 201
 
+# Route for logging a user in
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = User.query.filter_by(username=data.get('username')).first()
+
+    # Check if the user exists and the password is correct
+    if user and user.check_password(data.get('password', '')):
+        # login_user is a special Flask-Login function that creates the session
+        login_user(user)
+        return jsonify({"success": "Logged in successfully."})
+    
+    return jsonify({"error": "Invalid username or password"}), 401 # 401 is the "Unauthorized" status code
+
+# Route for logging a user out
+@app.route('/logout', methods=['POST'])
+def logout():
+    # logout_user is a special Flask-Login function that clears the session
+    logout_user()
+    return jsonify({"success": "Logged out successfully."})
 # --- API ENDPOINTS ---
 
 # GET all to-do items

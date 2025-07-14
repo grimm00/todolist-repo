@@ -16,3 +16,6 @@ __pycache__/
 
 # Ignore the instance-specific database file
 instance/database.db
+
+# Ignore cookie file
+cookies.txt
