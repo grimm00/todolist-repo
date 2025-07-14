@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request, render_template
 from flask_sqlalchemy import SQLAlchemy
+from flask_bcrypt import Bcrypt
 import os
 
 # --- Find the absolute path of the project directory ---
@@ -22,12 +23,21 @@ else:
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+bcrypt = Bcrypt(app) # Initialize BCrypt
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# --- DATABASE MODEL DEFINITIONS ---
 
-# --- DATABASE MODEL DEFINITION ---
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), nullable=False, unique=True)
+    password_hash = db.Column(db.String(150), nullable=False)
+
+    def set_password(self, password):
+        self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    def check_password(self, password):
+        # We will use this in the next step (login)
+        return bcrypt.check_password_hash(self.password_hash, password)
 class Todo(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     task = db.Column(db.String(200), nullable=False)
@@ -39,12 +49,37 @@ class Todo(db.Model):
             'task': self.task,
             'completed': self.completed
         }
-        
+             
 with app.app_context():
     db.create_all()
 
-# --- API ENDPOINTS ---
+# --- ROUTES ---
 
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# Route for registering a new user
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({"error": "Username and password are required"}), 400
+
+    # Check if user already exists
+    user = User.query.filter_by(username=data['username']).first()
+    if user:
+        return jsonify({"error": "Username already exists"}), 409
+    
+    # Create new user and hash the password
+    new_user = User(username=data['username'])
+    new_user.set_password(data['password'])
+    db.session.add(new_user)
+    db.session.commit()
+    
+    return jsonify({"success": f"User '{new_user.username}' created."}), 201
+
+# --- API ENDPOINTS ---
 
 # GET all to-do items
 @app.route('/api/todos', methods=['GET'])
