@@ -67,7 +67,7 @@ jobs:
       # and responds correctly before it gets deployed.
       - name: Test Docker image
         run: |
-          CONTAINER_ID=$(docker run -d -p 8080:8080 ${{ env.IMAGE_TAG }}:latest)
+          CONTAINER_ID=$(docker run -d -p 8080:8080 -e PORT=8080 ${{ env.IMAGE_TAG }}:latest)
           # 'trap' ensures the container is stopped and removed even if the test fails.
           trap 'docker stop ${CONTAINER_ID} && docker rm ${CONTAINER_ID}' EXIT
           echo "Waiting for application to start..."
