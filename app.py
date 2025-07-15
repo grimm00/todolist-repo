@@ -118,6 +118,12 @@ def logout():
     return jsonify({"success": "Logged out successfully."})
 # --- API ENDPOINTS ---
 
+# Route to get the current user's information
+@app.route('/api/me')
+@login_required
+def get_current_user():
+    return jsonify({"username": current_user.username})
+
 # GET all to-do items for the logged-in user
 @app.route('/api/todos', methods=['GET'])
 @login_required # <-- This endpoint is now protected
