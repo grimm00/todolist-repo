@@ -42,4 +42,5 @@ COPY --from=builder /app .
 EXPOSE 8080
 ENV FLASK_APP=app.py
 ENV FLASK_RUN_HOST=0.0.0.0
-CMD ["python", "app.py"]
+# CMD ["python", "app.py"] - Old Production
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
