@@ -34,6 +34,7 @@ WORKDIR /app
 # Copy the installed Python packages from the "builder" stage.
 # This is much faster than running "pip install" again.
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy the application code from the "builder" stage.
 COPY --from=builder /app .
