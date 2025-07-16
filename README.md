@@ -1,5 +1,7 @@
 # DevOps To-Do List App
 
+[![Version](https://img.shields.io/badge/version-v0.2.1-blue)](https://github.com/grimm00/todolist-repo/releases)
+
 A full-stack To-Do List application built with Flask and vanilla JavaScript, containerized with Docker, and deployed via an automated CI/CD pipeline to Google Cloud Run. This project was created as a hands-on learning exercise to cover all layers of a modern web application and its deployment workflow.
 
 ## Table of Contents
