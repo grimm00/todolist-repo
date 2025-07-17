@@ -118,7 +118,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ needs.build-and-push.outputs.image_tag }}:latest
           no_traffic: true
-          flags: '--allow-unauthenticated
+          flags: '--allow-unauthenticated'
 
         # Step 10: Runs a health check on the private URL
       - name: Test Staging Revision
