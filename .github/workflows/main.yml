@@ -61,7 +61,10 @@ jobs:
       # Define the image tag using an environment variable for reusability.
       - name: Define Image Tag
         id: define_tag
-        run: echo "IMAGE_TAG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}" >> $GITHUB_ENV
+        run: |
+          TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}"
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
 
       # Step 5: Build the Docker image, tagging it for GCR.
       # This is the equivalent of 'docker build' in your script.
