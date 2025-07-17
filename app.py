@@ -3,6 +3,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 import os
+from google.cloud.sql.connector import Connector, IPTypes
+import sqlalchemy
 
 # --- Find the absolute path of the project directory ---
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -15,17 +17,56 @@ app.config['SECRET_KEY'] = os.urandom(24)
 
 # --- DATABASE CONFIGURATION ---
 
+# Function to initialize the database connection pool.
+# This will be used in the production environment.
+def init_connection_pool() -> sqlalchemy.engine.base.Engine:
+    """Initializes a connection pool for a Cloud SQL instance."""
+    # The Cloud SQL Python Connector automatically handles IAM DB Auth.
+    connector = Connector()
+
+    def getconn() -> sqlalchemy.engine.base.Connection:
+        # These environment variables will be set in our deployment pipeline.
+        # e.g. 'project:region:instance'
+        INSTANCE_CONNECTION_NAME = os.environ["INSTANCE_CONNECTION_NAME"]
+        DB_USER = os.environ["DB_USER"]  # e.g. 'my-db-user'
+        DB_PASS = os.environ["DB_PASS"]  # e.g. 'my-db-password'
+        DB_NAME = os.environ["DB_NAME"]  # e.g. 'my-database'
+        
+        conn = connector.connect(
+            INSTANCE_CONNECTION_NAME,
+            "pg8000",
+            user=DB_USER,
+            password=DB_PASS,
+            db=DB_NAME,
+            ip_type=IPTypes.PUBLIC,
+        )
+        return conn
+
+    # The Cloud SQL Python Connector can be used with SQLAlchemy
+    pool = sqlalchemy.create_engine(
+        "postgresql+pg8000://",
+        creator=getconn,
+        # Other SQLAlchemy options can be passed here
+    )
+    return pool
+
 # Check if running in Cloud Run, otherwise use the local instance folder
 if os.environ.get("K_SERVICE"):
     # For Cloud Run, use the temporary directory
-    db_uri = "sqlite:////tmp/database.db"
+    # Use the new connection pool function for Cloud Run
+    db_pool = init_connection_pool()
+    # Configure SQLAlchemy to use the connection pool
+    app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+pg8000://"
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        "creator": db_pool.creator
+    }
 else:
     # Create an absolute path for the local database
     instance_path = os.path.join(basedir, 'instance')
     os.makedirs(instance_path, exist_ok=True)
     db_uri = f"sqlite:///{os.path.join(instance_path, 'database.db')}"
+    app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
     
-app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app) # Initialize BCrypt
@@ -68,6 +109,8 @@ class Todo(db.Model):
         }
              
 with app.app_context():
+    # This will create the tables in your Cloud SQL database on the first run,
+    # or in your local SQLite database for development.
     db.create_all()
 
 # --- ROUTES ---
@@ -158,7 +201,7 @@ def delete_todo(id):
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Flask on port {port}, database at {db_uri}")
+    print(f"Starting Flask on port {port}")
     app.run(host="0.0.0.0", port=port)
 
 
