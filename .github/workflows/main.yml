@@ -86,6 +86,10 @@ jobs:
           curl --retry 5 --retry-delay 3 --retry-connrefused --fail http://localhost:8080/
           echo "✅ Container test passed!"
 
+        # Step 7: Push the successfully tested Docker image to GCR.
+      - name: Push Docker image to GCR
+        run: docker push ${{ env.IMAGE_TAG }}:latest
+
   deploy:
     name: Deploy to Cloud Run
     runs-on: ubuntu-latest
@@ -96,7 +100,7 @@ jobs:
       id-token: 'write'
 
     steps:
-        # Step 7: Deploy the new image to Cloud Run.
+        # Step 8: Deploy the new image to Cloud Run.
         # This uses an official Google action to handle the deployment.
       - name: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@v2'
@@ -104,15 +108,11 @@ jobs:
           workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
           service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
 
-        # Step 7: Push the successfully tested Docker image to GCR.
-      - name: Push Docker image to GCR
-        run: docker push ${{ env.IMAGE_TAG }}:latest
-
-        # Step 8: Sets up Cloud SDK
+        # Step 9: Sets up Cloud SDK
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
       
-        # Step 9: Green Deployment with no traffic to test app
+        # Step 10: Green Deployment with no traffic to test app
       - name: Deploy Staging Revision (No Traffic)
         id: deploy_staging
         uses: google-github-actions/deploy-cloudrun@v2
@@ -123,14 +123,14 @@ jobs:
           no_traffic: true
           flags: '--allow-unauthenticated'
 
-        # Step 10: Runs a health check on the private URL
+        # Step 11: Runs a health check on the private URL
       - name: Test Staging Revision
         run: |
           echo "Testing new revision at ${{ steps.deploy_staging.outputs.url }}"
           curl --retry 5 --retry-delay 10 --retry-connrefused --fail ${{ steps.deploy_staging.outputs.url }}/
           echo "✅ Staging revision test passed!"
 
-        # Step 11: If test succeeds, pushes traffic to current revision
+        # Step 12: If test succeeds, pushes traffic to current revision
       - name: Promote Revision to Production
         if: success()
         run: |
