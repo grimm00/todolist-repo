@@ -18,8 +18,8 @@ env:
   REGION: "us-central1"
 
 jobs:
-  build-and-deploy:
-    name: Build, Test, and Deploy
+  build-and-push:
+    name: Build, Test, and Push Docker Image
     # Use the latest Ubuntu runner provided by GitHub.
     runs-on: ubuntu-latest
 
@@ -28,7 +28,12 @@ jobs:
     permissions:
       contents: 'read'
       id-token: 'write'
-
+    
+    # Define the output of this job, which will be the image tag.
+    # The 'deploy' job will use this output.
+    outputs:
+      image_tag: ${{ steps.define_tag.outputs.IMAGE_TAG }}
+    
     steps:
       # Step 1: Check out the repository's code so the workflow can access it.
       - name: Checkout code
@@ -51,11 +56,12 @@ jobs:
       # Step 4: Configure Docker to authenticate with Google Container Registry (GCR).
       # This allows the 'docker push' command to work.
       - name: Configure Docker for GCR
-        run: gcloud auth configure-docker gcr.io
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
       # Define the image tag using an environment variable for reusability.
       - name: Define Image Tag
-        run: echo "IMAGE_TAG=gcr.io/${PROJECT_ID}/${SERVICE_NAME}" >> $GITHUB_ENV
+        id: define_tag
+        run: echo "IMAGE_TAG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}" >> $GITHUB_ENV
 
       # Step 5: Build the Docker image, tagging it for GCR.
       # This is the equivalent of 'docker build' in your script.
@@ -77,24 +83,55 @@ jobs:
           curl --retry 5 --retry-delay 3 --retry-connrefused --fail http://localhost:8080/
           echo "✅ Container test passed!"
 
-      # Step 7: Push the successfully tested Docker image to GCR.
+  deploy:
+    name: Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+        # Step 7: Deploy the new image to Cloud Run.
+        # This uses an official Google action to handle the deployment.
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
+          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+
+        # Step 7: Push the successfully tested Docker image to GCR.
       - name: Push Docker image to GCR
         run: docker push ${{ env.IMAGE_TAG }}:latest
 
-      # Step 8: Deploy the new image to Cloud Run.
-      # This uses an official Google action to handle the deployment.
-      - name: Deploy to Cloud Run
-        id: deploy
+        # Step 8: Sets up Cloud SDK
+      - name: Set up Cloud SDK
+        uses: 'google-github-actions/setup-gcloud@v2'
+      
+        # Step 9: Green Deployment with no traffic to test app
+      - name: Deploy Staging Revision (No Traffic)
+        id: deploy_staging
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
-          # Point to the specific image that was just built and pushed.
-          image: ${{ env.IMAGE_TAG }}:latest
-          # Add any other flags needed for your deployment.
-          flags: '--allow-unauthenticated'
+          image: ${{ needs.build-and-push.outputs.image_tag }}:latest
+          no_traffic: true
+          flags: '--allow-unauthenticated
 
-      # Final step: Output the URL of the deployed service for easy access.
-      - name: Output Deployed URL
-        run: echo "✅ Successfully deployed to ${{ steps.deploy.outputs.url }}"
+        # Step 10: Runs a health check on the private URL
+      - name: Test Staging Revision
+        run: |
+          echo "Testing new revision at ${{ steps.deploy_staging.outputs.url }}"
+          curl --retry 5 --retry-delay 10 --retry-connrefused --fail ${{ steps.deploy_staging.outputs.url }}/
+          echo "✅ Staging revision test passed!"
 
+        # Step 11: If test succeeds, pushes traffic to current revision
+      - name: Promote Revision to Production
+        if: success()
+        run: |
+          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+            --to-revisions=LATEST=100 \
+            --region=${{ env.REGION }}
+          echo "✅ New revision is now live."
