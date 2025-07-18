@@ -52,12 +52,20 @@ jobs:
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
 
-      # Step 4: Configure Docker to authenticate with Google Container Registry (GCR).
+      # Step 4: Create Artifact Registry repository if it doesn't exist.
+      - name: Create Artifact Registry repository
+        run: |
+          gcloud artifacts repositories create ${{ env.SERVICE_NAME }} \
+            --repository-format=docker \
+            --location=${{ env.REGION }} \
+            --description="Docker repository for the to-do list application" || true
+
+      # Step 5: Configure Docker to authenticate with Google Container Registry (GCR).
       # This allows the 'docker push' command to work.
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # Step 5: Define the image tag using an environment variable for reusability.
+      # Step 6: Define the image tag using an environment variable for reusability.
       - name: Define Image Tag
         id: define_tag
         run: |
@@ -65,12 +73,12 @@ jobs:
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
           echo "image_tag=$TAG" >> $GITHUB_OUTPUT
 
-      # Step 6: Build the Docker image, tagging it for GCR.
+      # Step 7: Build the Docker image, tagging it for GCR.
       # This is the equivalent of 'docker build' in your script.
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE_TAG }}:latest .
 
-      # Step 7: Test the container locally on the runner.
+      # Step 8: Test the container locally on the runner.
       # This replicates the local test stage from your script to ensure the container runs
       # and responds correctly before it gets deployed.
       - name: Test Docker image
@@ -85,7 +93,7 @@ jobs:
           curl --retry 5 --retry-delay 3 --retry-connrefused --fail http://localhost:8080/
           echo "✅ Container test passed!"
 
-        # Step 8: Push the successfully tested Docker image to GCR.
+        # Step 9: Push the successfully tested Docker image to GCR.
       - name: Push Docker image to Artifact Registry
         run: docker push ${{ env.IMAGE_TAG }}:latest
 
