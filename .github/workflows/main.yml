@@ -11,13 +11,13 @@ on:
       - main
 
 # Environment variables available to all jobs and steps in the workflow.
-# These are taken from your 'build-deploy.sh' script.
 env:
   PROJECT_ID: "todolist-465520"
   SERVICE_NAME: "todo-flask-app"
   REGION: "us-central1"
 
 jobs:
+  # --- JOB 1: Build, Test, and Push the Docker Image ---
   build-and-push:
     name: Build, Test, and Push Docker Image
     # Use the latest Ubuntu runner provided by GitHub.
@@ -32,17 +32,16 @@ jobs:
     # Define the output of this job, which will be the image tag.
     # The 'deploy' job will use this output.
     outputs:
-      image_tag: ${{ steps.define_tag.outputs.IMAGE_TAG }}
+      image_tag: ${{ steps.define_tag.outputs.image_tag }}
     
     steps:
       # Step 1: Check out the repository's code so the workflow can access it.
-      - name: Checkout code
+      - name: Step 1: Checkout code
         uses: actions/checkout@v4
 
       # Step 2: Authenticate to Google Cloud.
       # This uses Workload Identity Federation to securely log in without service account keys.
-      # It uses the secrets you created in your GitHub repository.
-      - name: Authenticate to Google Cloud
+      - name: Step 2: Authenticate to Google Cloud
         id: auth
         uses: 'google-github-actions/auth@v2'
         with:
@@ -50,46 +49,45 @@ jobs:
           service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
 
       # Step 3: Set up the gcloud CLI tool.
-      - name: Set up Cloud SDK
+      - name: Step 3: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
 
-      # Step 4: Configure Docker to authenticate with Google Container Registry (GCR).
+      # Step 4: Configure Docker to authenticate with Google Artifact Registry.
       # This allows the 'docker push' command to work.
-      - name: Configure Docker for GCR
+      - name: Step 4: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # Define the image tag using an environment variable for reusability.
-      - name: Define Image Tag
+      # Step 5: Define the image tag using an environment variable for reusability.
+      - name: Step 5: Define and expose image tag
         id: define_tag
         run: |
           TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}"
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
           echo "image_tag=$TAG" >> $GITHUB_OUTPUT
 
-      # Step 5: Build the Docker image, tagging it for GCR.
-      # This is the equivalent of 'docker build' in your script.
-      - name: Build Docker image
+      # Step 6: Build the Docker image, tagging it for Artifact Registry.
+      - name: Step 6: Build Docker image
         run: docker build -t ${{ env.IMAGE_TAG }}:latest .
 
-      # Step 6: Test the container locally on the runner.
+      # Step 7: Test the container locally on the runner.
       # This replicates the local test stage from your script to ensure the container runs
-      # and responds correctly before it gets deployed.
-      - name: Test Docker image
+      # and responds correctly before it gets pushed.
+      - name: Step 7: Test Docker image locally
         run: |
-          CONTAINER_ID=$(docker run -d -p 8080:8080 -e PORT=8080 ${{ env.IMAGE_TAG }}:latest)
+          CONTAINER_ID=$(docker run -d -p 8080:8080 ${{ env.IMAGE_TAG }}:latest)
           # 'trap' ensures the container is stopped and removed even if the test fails.
           trap 'docker stop ${CONTAINER_ID} && docker rm ${CONTAINER_ID}' EXIT
           echo "Waiting for application to start..."
-          # Increased sleep time and added retries to curl for more reliability in the CI environment.
           sleep 10 
           echo "Testing application health..."
           curl --retry 5 --retry-delay 3 --retry-connrefused --fail http://localhost:8080/
-          echo "✅ Container test passed!"
+          echo "✅ Local container test passed!"
 
-        # Step 7: Push the successfully tested Docker image to GCR.
-      - name: Push Docker image to GCR
+      # Step 8: Push the successfully tested Docker image to Artifact Registry.
+      - name: Step 8: Push Docker image to Artifact Registry
         run: docker push ${{ env.IMAGE_TAG }}:latest
 
+  # --- JOB 2: Deploy the Image to Cloud Run ---
   deploy:
     name: Deploy to Cloud Run
     runs-on: ubuntu-latest
@@ -100,20 +98,20 @@ jobs:
       id-token: 'write'
 
     steps:
-        # Step 8: Deploy the new image to Cloud Run.
-        # This uses an official Google action to handle the deployment.
-      - name: Authenticate to Google Cloud
+      # Step 1: Authenticate to Google Cloud in this new job.
+      - name: Step 1: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
           service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
-
-        # Step 9: Sets up Cloud SDK
-      - name: Set up Cloud SDK
+      
+      # Step 2: Set up the gcloud CLI tool in this new job.
+      - name: Step 2: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
       
-        # Step 10: Green Deployment with no traffic to test app
-      - name: Deploy Staging Revision (No Traffic)
+      # Step 3: Deploy the new image as a "staging" revision with no traffic.
+      # This is our "Green Deployment" to test the app in the real cloud environment.
+      - name: Step 3: Deploy Staging Revision (No Traffic)
         id: deploy_staging
         uses: google-github-actions/deploy-cloudrun@v2
         with:
@@ -123,15 +121,15 @@ jobs:
           no_traffic: true
           flags: '--allow-unauthenticated'
 
-        # Step 11: Runs a health check on the private URL
-      - name: Test Staging Revision
+      # Step 4: Run a health check against the private URL of the new revision.
+      - name: Step 4: Test Staging Revision
         run: |
           echo "Testing new revision at ${{ steps.deploy_staging.outputs.url }}"
           curl --retry 5 --retry-delay 10 --retry-connrefused --fail ${{ steps.deploy_staging.outputs.url }}/
           echo "✅ Staging revision test passed!"
 
-        # Step 12: If test succeeds, pushes traffic to current revision
-      - name: Promote Revision to Production
+      # Step 5: If the test succeeds, promote the new revision to serve 100% of traffic.
+      - name: Step 5: Promote Revision to Production
         if: success()
         run: |
           gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
