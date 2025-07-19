@@ -11,13 +11,15 @@ on:
       - main
 
 # Environment variables available to all jobs and steps in the workflow.
-# These are taken from your 'build-deploy.sh' script.
 env:
   PROJECT_ID: "todolist-465520"
   SERVICE_NAME: "todo-flask-app"
   REGION: "us-central1"
+  # NEW: Add Cloud SQL instance connection name as an env var
   INSTANCE_CONNECTION_NAME: "todolist-465520:us-central1:todo-db-instance"
+
 jobs:
+  # --- JOB 1: Build, Test, and Push the Docker Image ---
   build-and-push:
     name: Build, Test, and Push Docker Image
     # Use the latest Ubuntu runner provided by GitHub.
@@ -60,43 +62,42 @@ jobs:
             --location=${{ env.REGION }} \
             --description="Docker repository for the to-do list application" || true
 
-      # Step 5: Configure Docker to authenticate with Google Container Registry (GCR).
+      # Step 5: Configure Docker to authenticate with Google Artifact Registry.
       # This allows the 'docker push' command to work.
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
       # Step 6: Define the image tag using an environment variable for reusability.
-      - name: Define Image Tag
+      - name: Define and expose image tag
         id: define_tag
         run: |
           TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}"
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
           echo "image_tag=$TAG" >> $GITHUB_OUTPUT
 
-      # Step 7: Build the Docker image, tagging it for GCR.
-      # This is the equivalent of 'docker build' in your script.
+      # Step 7: Build the Docker image, tagging it for Artifact Registry.
       - name: Build Docker image
         run: docker build -t ${{ env.IMAGE_TAG }}:latest .
 
       # Step 8: Test the container locally on the runner.
       # This replicates the local test stage from your script to ensure the container runs
-      # and responds correctly before it gets deployed.
-      - name: Test Docker image
+      # and responds correctly before it gets pushed.
+      - name: Test Docker image locally
         run: |
-          CONTAINER_ID=$(docker run -d -p 8080:8080 -e PORT=8080 ${{ env.IMAGE_TAG }}:latest)
+          CONTAINER_ID=$(docker run -d -p 8080:8080 ${{ env.IMAGE_TAG }}:latest)
           # 'trap' ensures the container is stopped and removed even if the test fails.
           trap 'docker stop ${CONTAINER_ID} && docker rm ${CONTAINER_ID}' EXIT
           echo "Waiting for application to start..."
-          # Increased sleep time and added retries to curl for more reliability in the CI environment.
           sleep 10 
           echo "Testing application health..."
           curl --retry 5 --retry-delay 3 --retry-connrefused --fail http://localhost:8080/
-          echo "✅ Container test passed!"
+          echo "✅ Local container test passed!"
 
-        # Step 9: Push the successfully tested Docker image to GCR.
+      # Step 9: Push the successfully tested Docker image to Artifact Registry.
       - name: Push Docker image to Artifact Registry
         run: docker push ${{ env.IMAGE_TAG }}:latest
 
+  # --- JOB 2: Deploy the Image to Cloud Run ---
   deploy:
     name: Deploy to Cloud Run
     runs-on: ubuntu-latest
@@ -107,45 +108,41 @@ jobs:
       id-token: 'write'
 
     steps:
-        # Step 1: Deploy the new image to Cloud Run.
-        # This uses an official Google action to handle the deployment.
+      # Step 1: Authenticate to Google Cloud in this new job.
       - name: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@v2'
         with:
           workload_identity_provider: '${{ secrets.GCP_WIF_PROVIDER }}'
           service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
-
-        # Step 2: Sets up Cloud SDK
+      
+      # Step 2: Set up the gcloud CLI tool in this new job.
       - name: Set up Cloud SDK
         uses: 'google-github-actions/setup-gcloud@v2'
       
-        # Step 3: Green Deployment with no traffic to test app
+      # Step 3: Deploy Staging Revision using an explicit gcloud command.
+      # This provides more control and overwrites existing configurations.
       - name: Deploy Staging Revision (No Traffic)
         id: deploy_staging
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE_NAME }}
-          region: ${{ env.REGION }}
-          image: ${{ needs.build-and-push.outputs.image_tag }}:latest
-          no_traffic: true
-          flags: '--allow-unauthenticated'
-          # This section injects the environment variables our app needs.
-          env_vars: >- # Use >- to allow multi-line env vars
-            INSTANCE_CONNECTION_NAME=${{ env.INSTANCE_CONNECTION_NAME }}
-            DB_USER=todo_user
-            DB_NAME=todos
-          # This section securely injects our password from Secret Manager.
-          secrets: >- # Use >- to allow multi-line secrets
-            DB_PASS=todo-db-password:latest
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image=${{ needs.build-and-push.outputs.image_tag }}:latest \
+            --region=${{ env.REGION }} \
+            --no-traffic \
+            --allow-unauthenticated \
+            --add-cloudsql-instances=${{ env.INSTANCE_CONNECTION_NAME }} \
+            --set-env-vars="INSTANCE_CONNECTION_NAME=${{ env.INSTANCE_CONNECTION_NAME }},DB_USER=todo_user,DB_NAME=todos" \
+            --set-secrets="DB_PASS=todo-db-password:latest" \
+            --format=json > deployment.json
+          echo "url=$(jq -r .status.url deployment.json)" >> $GITHUB_OUTPUT
 
-        # Step 4: Runs a health check on the private URL
+      # Step 4: Run a health check against the private URL of the new revision.
       - name: Test Staging Revision
         run: |
           echo "Testing new revision at ${{ steps.deploy_staging.outputs.url }}"
           curl --retry 5 --retry-delay 10 --retry-connrefused --fail ${{ steps.deploy_staging.outputs.url }}/
           echo "✅ Staging revision test passed!"
 
-        # Step 5: If test succeeds, pushes traffic to current revision
+      # Step 5: If the test succeeds, promote the new revision to serve 100% of traffic.
       - name: Promote Revision to Production
         if: success()
         run: |
