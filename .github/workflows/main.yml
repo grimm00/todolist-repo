@@ -71,7 +71,7 @@ jobs:
         run: |
           TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}"
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
-          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_OUTPUT
 
       # Step 7: Build the Docker image, tagging it for GCR.
       # This is the equivalent of 'docker build' in your script.
