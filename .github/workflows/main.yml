@@ -129,6 +129,14 @@ jobs:
           image: ${{ needs.build-and-push.outputs.image_tag }}:latest
           no_traffic: true
           flags: '--allow-unauthenticated'
+          # NEW: This section injects the environment variables our app needs.
+          env_vars: >- # Use >- to allow multi-line env vars
+            INSTANCE_CONNECTION_NAME=${{ env.INSTANCE_CONNECTION_NAME }}
+            DB_USER=todo_user
+            DB_NAME=todos
+          # NEW: This section securely injects our password from Secret Manager.
+          secrets: >- # Use >- to allow multi-line secrets
+            DB_PASS=todo-db-password:latest
 
         # Step 4: Runs a health check on the private URL
       - name: Test Staging Revision
