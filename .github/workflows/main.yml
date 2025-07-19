@@ -32,7 +32,7 @@ jobs:
     # Define the output of this job, which will be the image tag.
     # The 'deploy' job will use this output.
     outputs:
-      image_tag: ${{ steps.define_tag.outputs.IMAGE_TAG }}
+      image_tag: ${{ steps.define_tag.outputs.image_tag }}
     
     steps:
       # Step 1: Check out the repository's code so the workflow can access it.
@@ -71,7 +71,7 @@ jobs:
         run: |
           TAG="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}"
           echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
-          echo "IMAGE_TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "image_tag=$TAG" >> $GITHUB_OUTPUT
 
       # Step 7: Build the Docker image, tagging it for GCR.
       # This is the equivalent of 'docker build' in your script.
